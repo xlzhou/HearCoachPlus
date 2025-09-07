@@ -1,8 +1,10 @@
 import Foundation
 
 class MarkovGenerator: LLMProvider {
-    private var markovChains: [String: [String: Int]] = [:] // word -> nextWord -> count
-    private var starters: [String: Int] = [:] // starting words
+    private var chineseMarkovChains: [String: [String: Int]] = [:] // word -> nextWord -> count
+    private var englishMarkovChains: [String: [String: Int]] = [:] // word -> nextWord -> count
+    private var chineseStarters: [String: Int] = [:] // starting words for Chinese
+    private var englishStarters: [String: Int] = [:] // starting words for English
     
     // Corpus dictionaries will be loaded from external JSON files
     private var chineseCorpus: [String: [String]] = [:]
@@ -21,16 +23,16 @@ class MarkovGenerator: LLMProvider {
             for sentence in sentences {
                 let words = tokenizeChinese(sentence)
                 if !words.isEmpty {
-                    starters[words[0], default: 0] += 1
+                    chineseStarters[words[0], default: 0] += 1
                     
                     for i in 0..<words.count - 1 {
                         let currentWord = words[i]
                         let nextWord = words[i + 1]
                         
-                        if markovChains[currentWord] == nil {
-                            markovChains[currentWord] = [:]
+                        if chineseMarkovChains[currentWord] == nil {
+                            chineseMarkovChains[currentWord] = [:]
                         }
-                        markovChains[currentWord]?[nextWord, default: 0] += 1
+                        chineseMarkovChains[currentWord]?[nextWord, default: 0] += 1
                     }
                 }
             }
@@ -41,16 +43,16 @@ class MarkovGenerator: LLMProvider {
             for sentence in sentences {
                 let words = tokenizeEnglish(sentence)
                 if !words.isEmpty {
-                    starters[words[0], default: 0] += 1
+                    englishStarters[words[0], default: 0] += 1
                     
                     for i in 0..<words.count - 1 {
                         let currentWord = words[i]
                         let nextWord = words[i + 1]
                         
-                        if markovChains[currentWord] == nil {
-                            markovChains[currentWord] = [:]
+                        if englishMarkovChains[currentWord] == nil {
+                            englishMarkovChains[currentWord] = [:]
                         }
-                        markovChains[currentWord]?[nextWord, default: 0] += 1
+                        englishMarkovChains[currentWord]?[nextWord, default: 0] += 1
                     }
                 }
             }
@@ -142,6 +144,8 @@ class MarkovGenerator: LLMProvider {
     }
     
     func generateSentence(_ req: LLMRequest) async throws -> LLMSentence {
+        print("DEBUG: MarkovGenerator received request - lang=\(req.lang), difficulty=\(req.vocabBucket), length=\(req.length)")
+        
         let length = parseLength(req.length)
         let words = generateWords(length: length, language: req.lang, difficulty: req.vocabBucket)
         let sentence = formatSentence(words, language: req.lang)
@@ -164,41 +168,39 @@ class MarkovGenerator: LLMProvider {
     }
     
     private func generateWords(length: Int, language: String, difficulty: String) -> [String] {
-        var words: [String] = []
-        
         // Get appropriate corpus based on language and difficulty
         let corpus: [String]
         if language == "zh-CN" {
             corpus = chineseCorpus[difficulty] ?? chineseCorpus["common"] ?? getFallbackChineseCorpus(for: difficulty)
+            print("DEBUG: Using Chinese corpus for difficulty '\(difficulty)', corpus size: \(corpus.count)")
         } else {
             corpus = englishCorpus[difficulty] ?? englishCorpus["common"] ?? getFallbackEnglishCorpus(for: difficulty)
+            print("DEBUG: Using English corpus for difficulty '\(difficulty)', corpus size: \(corpus.count)")
         }
         
-        if length == 1 {
-            // Single word - return random word from corpus
-            return [corpus.randomElement()!.components(separatedBy: .whitespaces).first!]
-        }
-        
-        // For longer sentences, use Markov chain or fallback to random selection
-        if let firstWord = selectRandomStarter() {
-            words.append(firstWord)
-            
-            for _ in 1..<length {
-                if let nextWord = getNextWord(for: words.last!) {
-                    words.append(nextWord)
-                } else {
-                    // Fallback: add random word from corpus
-                    if let randomWord = corpus.randomElement()?.components(separatedBy: .whitespaces).randomElement() {
-                        words.append(randomWord)
-                    }
-                }
+        // For Chinese, always return complete corpus items directly
+        // Chinese corpus items are already well-formed words/phrases/sentences
+        if language == "zh-CN" {
+            if let randomItem = corpus.randomElement() {
+                return [randomItem]
+            } else {
+                return [getFallbackChineseCorpus(for: difficulty).randomElement()!]
             }
         }
         
-        return words
+        // For English, check the difficulty level to determine approach
+        if difficulty == "easy" {
+            // Easy level contains single words and simple phrases - return them directly
+            return [corpus.randomElement()!]
+        } else {
+            // Medium and Hard levels contain complete sentences - return them directly
+            // These are already well-formed sentences that shouldn't be broken down
+            return [corpus.randomElement()!]
+        }
     }
     
-    private func selectRandomStarter() -> String? {
+    private func selectRandomStarter(for language: String) -> String? {
+        let starters = (language == "zh-CN") ? chineseStarters : englishStarters
         let total = starters.values.reduce(0, +)
         if total == 0 { return nil }
         
@@ -212,7 +214,8 @@ class MarkovGenerator: LLMProvider {
         return starters.keys.randomElement()
     }
     
-    private func getNextWord(for word: String) -> String? {
+    private func getNextWord(for word: String, language: String) -> String? {
+        let markovChains = (language == "zh-CN") ? chineseMarkovChains : englishMarkovChains
         guard let nextWords = markovChains[word] else { return nil }
         let total = nextWords.values.reduce(0, +)
         if total == 0 { return nil }

@@ -3,8 +3,11 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var dataManager: DataManager
+    @EnvironmentObject private var trainingViewModel: TrainingViewModel
     @State private var showingExportSheet = false
     @State private var exportURL: URL?
+    @State private var showingRestartDialog = false
+    @State private var settingsChangedDuringSession = false
     
     var body: some View {
         NavigationView {
@@ -26,12 +29,25 @@ struct SettingsView: View {
             .sheet(isPresented: $showingAPIKeyInput) {
                 APIKeyInputView()
             }
-            .onChange(of: settings.language) { settings.saveSettings() }
-            .onChange(of: settings.sessionDuration) { settings.saveSettings() }
-            .onChange(of: settings.difficultyLevel) { settings.saveSettings() }
-            .onChange(of: settings.voiceRate) { settings.saveSettings() }
-            .onChange(of: settings.voicePitch) { settings.saveSettings() }
-            .onChange(of: settings.useOnlineLLM) { settings.saveSettings() }
+            .confirmationDialog("设置已更改", isPresented: $showingRestartDialog) {
+                Button("开始新会话") {
+                    startNewSession()
+                }
+                Button("继续当前会话") {
+                    continueCurrentSession()
+                }
+                Button("取消", role: .cancel) {
+                    settingsChangedDuringSession = false
+                }
+            } message: {
+                Text("设置已更改。您想要开始新的训练会话还是继续当前会话？新会话将立即应用更改的设置。")
+            }
+            .onChange(of: settings.language) { handleSettingChange() }
+            .onChange(of: settings.sessionDuration) { handleSettingChange() }
+            .onChange(of: settings.difficultyLevel) { handleSettingChange() }
+            .onChange(of: settings.voiceRate) { handleSettingChange() }
+            .onChange(of: settings.voicePitch) { handleSettingChange() }
+            .onChange(of: settings.useOnlineLLM) { handleSettingChange() }
             .onChange(of: settings.dailyReminderEnabled) { settings.saveSettings() }
             .onChange(of: settings.reminderTime) { settings.saveSettings() }
         }
@@ -198,6 +214,40 @@ struct SettingsView: View {
     private func clearAllData() {
         // In a real app, you'd want a confirmation dialog
         dataManager.sessions.removeAll()
+    }
+    
+    private func handleSettingChange() {
+        print("DEBUG: Settings changed - saving new values: language=\(settings.language.rawValue), difficulty=\(settings.difficultyLevel.rawValue)")
+        settings.saveSettings()
+        
+        // Check if we're in an active session and show dialog if needed
+        if trainingViewModel.isSessionActive && !settingsChangedDuringSession {
+            print("DEBUG: Session is active, showing restart dialog")
+            settingsChangedDuringSession = true
+            showingRestartDialog = true
+        } else {
+            print("DEBUG: No active session or already changed during session")
+        }
+    }
+    
+    private func startNewSession() {
+        print("DEBUG: Starting new session - current settings: language=\(settings.language.rawValue), difficulty=\(settings.difficultyLevel.rawValue)")
+        // End current session and reset to first page
+        trainingViewModel.endSession()
+        // Update the LLM provider to use new settings for the new session
+        trainingViewModel.updateLLMProvider()
+        settingsChangedDuringSession = false
+        print("DEBUG: New session started and LLM provider updated")
+        
+        // Navigate back to training tab (tab 0)
+        // This would be handled by the parent view through a binding
+        // For now, we'll just reset the state and the parent should handle navigation
+    }
+    
+    private func continueCurrentSession() {
+        // Update the LLM provider to use new settings for next content loading
+        trainingViewModel.updateLLMProvider()
+        settingsChangedDuringSession = false
     }
 }
 

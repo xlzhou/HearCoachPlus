@@ -17,7 +17,7 @@ class TrainingViewModel: ObservableObject {
     @Published var recordingURL: URL?
     @Published var showingNextButton = false
     
-    private let llmProvider: LLMProvider
+    private var llmProvider: LLMProvider
     private let ttsProvider: TTSProvider
     private let asrProvider: ASRProvider
     private let pronunciationRater: PronunciationRater
@@ -41,6 +41,10 @@ class TrainingViewModel: ObservableObject {
         self.audioService = audioService
         self.dataManager = dataManager
         self.settings = settings
+    }
+    
+    func updateLLMProvider() {
+        self.llmProvider = settings.getLLMProvider()
     }
     
     func startSession() {
@@ -67,7 +71,12 @@ class TrainingViewModel: ObservableObject {
                 currentSentence = sentence
                 currentAttempt = 1
                 showingSentenceText = false
-                await synthesizeAndPlay(sentence.text)
+                isLoading = false  // Set loading to false immediately after sentence is ready
+                
+                // Start audio playback in background - don't wait for it to finish
+                Task {
+                    await synthesizeAndPlay(sentence.text)
+                }
             } catch {
                 // Fallback to starter sentences
                 let sentences = dataManager.getSentencesForLanguage(settings.language, level: settings.difficultyLevel)
@@ -75,10 +84,14 @@ class TrainingViewModel: ObservableObject {
                     currentSentence = sentence
                     currentAttempt = 1
                     showingSentenceText = false
-                    await synthesizeAndPlay(sentence.text)
+                    isLoading = false  // Set loading to false immediately after sentence is ready
+                    
+                    // Start audio playback in background - don't wait for it to finish
+                    Task {
+                        await synthesizeAndPlay(sentence.text)
+                    }
                 }
             }
-            isLoading = false
         }
     }
     
@@ -92,6 +105,8 @@ class TrainingViewModel: ObservableObject {
             vocabBucket: settings.difficultyLevel.rawValue,
             topic: getRandomTopic()
         )
+        
+        print("DEBUG: Generating sentence with language=\(settings.language.rawValue), difficulty=\(settings.difficultyLevel.rawValue), length=\(generationLength)")
         
         let llmSentence = try await llmProvider.generateSentence(request)
         return Sentence(
@@ -302,15 +317,37 @@ class TrainingViewModel: ObservableObject {
     }
     
     private func calculateSemanticSimilarity(reference: String, transcript: String) -> Double {
-        // Simple similarity calculation - in real app, use more sophisticated NLP
-        let separators = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
-        let refWords = Set(reference.lowercased().components(separatedBy: separators))
-        let transWords = Set(transcript.lowercased().components(separatedBy: separators))
+        // Clean both texts by removing punctuation and normalizing
+        let cleanReference = cleanTextForComparison(reference)
+        let cleanTranscript = cleanTextForComparison(transcript)
+        
+        let refWords = Set(cleanReference.lowercased().components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty })
+        let transWords = Set(cleanTranscript.lowercased().components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty })
         
         let intersection = refWords.intersection(transWords)
         let union = refWords.union(transWords)
+        let similarity = union.isEmpty ? 0 : Double(intersection.count) / Double(union.count)
         
-        return union.isEmpty ? 0 : Double(intersection.count) / Double(union.count)
+        print("DEBUG: Text comparison - Original: '\(reference)' vs Input: '\(transcript)'")
+        print("DEBUG: Cleaned - Reference: '\(cleanReference)' vs Transcript: '\(cleanTranscript)'")
+        print("DEBUG: Reference words: \(refWords)")
+        print("DEBUG: Transcript words: \(transWords)")
+        print("DEBUG: Similarity: \(similarity)")
+        
+        return similarity
+    }
+    
+    private func cleanTextForComparison(_ text: String) -> String {
+        // Define all punctuation marks to remove (English and Chinese)
+        let punctuationMarks = ".,!?;:\"'()[]{}「」『』\u{201C}\u{201D}\u{2018}\u{2019}，。！？；：（）【】《》〈〉〔〕〘〙〚〛"
+        let punctuationSet = CharacterSet(charactersIn: punctuationMarks)
+        
+        // Remove punctuation and extra whitespace
+        return text.components(separatedBy: punctuationSet)
+                   .joined(separator: " ")
+                   .components(separatedBy: .whitespacesAndNewlines)
+                   .filter { !$0.isEmpty }
+                   .joined(separator: " ")
     }
     
     private func calculateItemScore(semanticSim: Double, pronunciationResult: PronunciationResult?, attempts: Int) -> Double {

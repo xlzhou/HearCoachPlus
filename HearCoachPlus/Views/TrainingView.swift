@@ -1,20 +1,12 @@
 import SwiftUI
 
 struct TrainingView: View {
-    @StateObject private var viewModel: TrainingViewModel
+    @EnvironmentObject private var viewModel: TrainingViewModel
     @EnvironmentObject private var audioService: AudioService
     @EnvironmentObject private var dataManager: DataManager
     @EnvironmentObject private var settings: AppSettings
     @State private var textResponse = ""
     @State private var showingTextInput = false
-    
-    init() {
-        self._viewModel = StateObject(wrappedValue: TrainingViewModel(
-            audioService: AudioService(),
-            dataManager: DataManager(),
-            settings: AppSettings()
-        ))
-    }
     
     var body: some View {
         NavigationView {
@@ -39,14 +31,6 @@ struct TrainingView: View {
             .sheet(isPresented: $showingTextInput) {
                 textInputSheet
             }
-        }
-        .onAppear {
-            // Inject environment objects into view model
-            viewModel.updateDependencies(
-                audioService: audioService,
-                dataManager: dataManager,
-                settings: settings
-            )
         }
     }
     
@@ -316,16 +300,9 @@ struct AudioLevelView: View {
     }
 }
 
-// Extension to update dependencies (workaround for StateObject initialization)
-extension TrainingViewModel {
-    func updateDependencies(audioService: AudioService, dataManager: DataManager, settings: AppSettings) {
-        // This would be implemented to update the dependencies if needed
-        // In a real app, you might use dependency injection or a different pattern
-    }
-}
-
 #Preview {
     TrainingView()
+        .environmentObject(TrainingViewModel(audioService: AudioService(), dataManager: DataManager(), settings: AppSettings()))
         .environmentObject(AppSettings())
         .environmentObject(DataManager())
         .environmentObject(AudioService())

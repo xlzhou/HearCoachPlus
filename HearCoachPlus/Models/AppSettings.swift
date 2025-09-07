@@ -51,6 +51,7 @@ class AppSettings: ObservableObject {
     }
     
     func saveSettings() {
+        print("DEBUG: AppSettings.saveSettings() - Saving language=\(language.rawValue), difficulty=\(difficultyLevel.rawValue)")
         userDefaults.set(language.rawValue, forKey: "language")
         userDefaults.set(sessionDuration, forKey: "sessionDuration")
         userDefaults.set(dailyReminderEnabled, forKey: "dailyReminderEnabled")
@@ -65,6 +66,7 @@ class AppSettings: ObservableObject {
         userDefaults.set(hasCompletedOnboarding, forKey: "hasCompletedOnboarding")
         userDefaults.set(hasAcceptedPrivacyConsent, forKey: "hasAcceptedPrivacyConsent")
         userDefaults.set(useOnlineLLM, forKey: "useOnlineLLM")
+        print("DEBUG: AppSettings saved to UserDefaults")
     }
     
     func getLLMProvider() -> LLMProvider {
