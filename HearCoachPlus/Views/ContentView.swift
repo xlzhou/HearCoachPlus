@@ -39,7 +39,7 @@ struct ContentView: View {
                 }
                 .tag(1)
             
-            SettingsView()
+            SettingsView(selectedTab: $selectedTab)
                 .environmentObject(trainingViewModel)
                 .tabItem {
                     Image(systemName: "gearshape")

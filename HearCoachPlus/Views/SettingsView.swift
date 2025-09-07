@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @Binding var selectedTab: Int
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var dataManager: DataManager
     @EnvironmentObject private var trainingViewModel: TrainingViewModel
@@ -240,8 +241,7 @@ struct SettingsView: View {
         print("DEBUG: New session started and LLM provider updated")
         
         // Navigate back to training tab (tab 0)
-        // This would be handled by the parent view through a binding
-        // For now, we'll just reset the state and the parent should handle navigation
+        selectedTab = 0
     }
     
     private func continueCurrentSession() {
@@ -363,7 +363,7 @@ struct ActivityViewController: UIViewControllerRepresentable {
 }
 
 #Preview {
-    SettingsView()
+    SettingsView(selectedTab: .constant(2))
         .environmentObject(AppSettings())
         .environmentObject(DataManager())
 }

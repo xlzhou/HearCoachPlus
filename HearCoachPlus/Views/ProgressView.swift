@@ -17,7 +17,11 @@ struct ProgressView: View {
                 VStack(spacing: 24) {
                     timeRangeSelector
                     
-                    if dataManager.sessions.isEmpty {
+                    // Always show training duration section (usage-based)
+                    trainingDurationSection
+                    
+                    // Session-based stats scoped to current range
+                    if filteredSessions.isEmpty {
                         emptyStateView
                     } else {
                         statsCardsView
@@ -46,11 +50,11 @@ struct ProgressView: View {
                 .font(.system(size: 60))
                 .foregroundColor(.gray)
             
-            Text("暂无训练数据")
+            Text("本时段暂无训练数据")
                 .font(.title2)
                 .fontWeight(.semibold)
             
-            Text("完成第一次训练后，你将在此看到进度数据。")
+            Text("切换上方时间范围或完成训练后查看统计。")
                 .font(.body)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -64,28 +68,28 @@ struct ProgressView: View {
             GridItem(.flexible())
         ], spacing: 16) {
             StatCard(
-                title: "总训练次数",
+                title: "\(periodLabel)训练次数",
                 value: "\(filteredSessions.count)",
                 icon: "calendar",
                 color: .blue
             )
             
             StatCard(
-                title: "准确率",
+                title: "\(periodLabel)准确率",
                 value: "\(Int(averageAccuracy * 100))%",
                 icon: "target",
                 color: .green
             )
             
             StatCard(
-                title: "总尝试次数",
+                title: "\(periodLabel)尝试次数",
                 value: "\(totalAttempts)",
                 icon: "repeat",
                 color: .orange
             )
             
             StatCard(
-                title: "平均得分",
+                title: "\(periodLabel)平均得分",
                 value: "\(Int(averageScore))",
                 icon: "star.fill",
                 color: .yellow
@@ -116,6 +120,39 @@ struct ProgressView: View {
                 .chartYScale(domain: 0...100)
             } else {
                 // Fallback for iOS < 16
+                Text("需要 iOS 16+ 支持图表")
+                    .frame(height: 200)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(8)
+            }
+        }
+        .padding()
+        .background(Color.gray.opacity(0.05))
+        .cornerRadius(12)
+    }
+
+    private var trainingDurationSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("训练时长")
+                    .font(.headline)
+                Spacer()
+                Text("本周期：\(formatDuration(totalDurationInRange))")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            
+            if #available(iOS 16.0, *) {
+                Chart(usageEntriesInRange, id: \.id) { entry in
+                    BarMark(
+                        x: .value("Date", entry.id),
+                        y: .value("Minutes", entry.seconds / 60.0)
+                    )
+                    .foregroundStyle(.purple)
+                }
+                .frame(height: 200)
+            } else {
                 Text("需要 iOS 16+ 支持图表")
                     .frame(height: 200)
                     .frame(maxWidth: .infinity)
@@ -186,6 +223,43 @@ struct ProgressView: View {
         guard !sessions.isEmpty else { return 0 }
         
         return sessions.map { $0.averageScore }.reduce(0, +) / Double(sessions.count)
+    }
+
+    // MARK: - Usage helpers
+    private var periodLabel: String {
+        switch selectedTimeRange {
+        case .week: return "本周"
+        case .month: return "本月"
+        case .year: return "本年"
+        }
+    }
+    private var dateRangeStart: Date {
+        let now = Date()
+        let calendar = Calendar.current
+        switch selectedTimeRange {
+        case .week:
+            return calendar.date(byAdding: .day, value: -7, to: now) ?? now
+        case .month:
+            return calendar.date(byAdding: .month, value: -1, to: now) ?? now
+        case .year:
+            return calendar.date(byAdding: .year, value: -1, to: now) ?? now
+        }
+    }
+    
+    private var usageEntriesInRange: [DailyUsage] {
+        dataManager.usageEntries(from: dateRangeStart, to: Date())
+    }
+    
+    private var totalDurationInRange: TimeInterval {
+        usageEntriesInRange.reduce(0) { $0 + $1.seconds }
+    }
+    
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        if h > 0 { return "\(h)小时\(m)分" }
+        return "\(m)分"
     }
 }
 

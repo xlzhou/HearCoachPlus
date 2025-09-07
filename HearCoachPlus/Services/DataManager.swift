@@ -3,12 +3,17 @@ import Foundation
 class DataManager: ObservableObject {
     @Published var sessions: [TrainingSession] = []
     @Published var starterSentences: [Sentence] = []
+    @Published var dailyUsage: [DailyUsage] = [] // per-day accumulated seconds
+    // Dates for which the daily-goal congrats has already been shown
+    private var goalCongratsDates: Set<String> = []
     
     private let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     
     init() {
         loadStarterSentences()
         loadSessions()
+        loadDailyUsage()
+        loadGoalCongratsDates()
     }
     
     private func loadStarterSentences() {
@@ -48,6 +53,92 @@ class DataManager: ObservableObject {
             print("Failed to load sessions: \(error)")
             sessions = []
         }
+    }
+    
+    // MARK: - Daily Usage Persistence
+    private func usageURL() -> URL { documentsPath.appendingPathComponent("daily_usage.json") }
+    
+    private func loadDailyUsage() {
+        let url = usageURL()
+        do {
+            let data = try Data(contentsOf: url)
+            dailyUsage = try JSONDecoder().decode([DailyUsage].self, from: data)
+        } catch {
+            print("Failed to load daily usage: \(error)")
+            dailyUsage = []
+        }
+    }
+    
+    private func saveDailyUsage() {
+        let url = usageURL()
+        do {
+            let data = try JSONEncoder().encode(dailyUsage)
+            try data.write(to: url)
+        } catch {
+            print("Failed to save daily usage: \(error)")
+        }
+    }
+    
+    func addUsage(seconds: TimeInterval, on date: Date = Date()) {
+        guard seconds > 0 else { return }
+        let id = DailyUsage.isoDateString(for: date)
+        if let idx = dailyUsage.firstIndex(where: { $0.id == id }) {
+            dailyUsage[idx].seconds += seconds
+        } else {
+            dailyUsage.append(DailyUsage(date: date, seconds: seconds))
+        }
+        saveDailyUsage()
+    }
+    
+    func usageSeconds(for date: Date = Date()) -> TimeInterval {
+        let id = DailyUsage.isoDateString(for: date)
+        return dailyUsage.first(where: { $0.id == id })?.seconds ?? 0
+    }
+    
+    func usageEntries(from startDate: Date, to endDate: Date) -> [DailyUsage] {
+        // Filter inclusive by date string comparison
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        let startId = formatter.string(from: startDate)
+        let endId = formatter.string(from: endDate)
+        return dailyUsage
+            .filter { $0.id >= startId && $0.id <= endId }
+            .sorted { $0.id < $1.id }
+    }
+
+    // MARK: - Daily goal congrats tracking
+    private func congratsURL() -> URL { documentsPath.appendingPathComponent("goal_congrats.json") }
+    
+    private func loadGoalCongratsDates() {
+        do {
+            let data = try Data(contentsOf: congratsURL())
+            if let array = try JSONSerialization.jsonObject(with: data) as? [String] {
+                goalCongratsDates = Set(array)
+            }
+        } catch {
+            goalCongratsDates = []
+        }
+    }
+    
+    private func saveGoalCongratsDates() {
+        do {
+            let data = try JSONSerialization.data(withJSONObject: Array(goalCongratsDates), options: [])
+            try data.write(to: congratsURL())
+        } catch {
+            print("Failed to save goal congrats dates: \(error)")
+        }
+    }
+    
+    func hasShownCongrats(for date: Date = Date()) -> Bool {
+        let id = DailyUsage.isoDateString(for: date)
+        return goalCongratsDates.contains(id)
+    }
+    
+    func markCongratsShown(for date: Date = Date()) {
+        let id = DailyUsage.isoDateString(for: date)
+        goalCongratsDates.insert(id)
+        saveGoalCongratsDates()
     }
     
     func exportToCSV() -> URL? {

@@ -9,6 +9,12 @@ class AudioService: NSObject, ObservableObject {
     private var audioRecorder: AVAudioRecorder?
     private var audioPlayer: AVAudioPlayer?
     private var recordingTimer: Timer?
+    private var playbackStartDate: Date?
+    private var recordingStartDate: Date?
+    
+    // Callbacks for consumers to capture durations
+    var onPlaybackFinished: ((TimeInterval) -> Void)?
+    var onRecordingFinished: ((TimeInterval) -> Void)?
     
     private let audioSession = AVAudioSession.sharedInstance()
     
@@ -62,6 +68,7 @@ class AudioService: NSObject, ObservableObject {
             audioRecorder?.record()
             
             isRecording = true
+            recordingStartDate = Date()
             
             // Start monitoring audio levels
             recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
@@ -84,6 +91,11 @@ class AudioService: NSObject, ObservableObject {
         recordingTimer = nil
         isRecording = false
         recordingLevel = 0.0
+        if let start = recordingStartDate {
+            let duration = Date().timeIntervalSince(start)
+            onRecordingFinished?(max(0, duration))
+        }
+        recordingStartDate = nil
     }
     
     func playAudio(from url: URL) async throws {
@@ -95,6 +107,7 @@ class AudioService: NSObject, ObservableObject {
                 audioPlayer?.delegate = self
                 audioPlayer?.play()
                 isPlaying = true
+                playbackStartDate = Date()
             } catch {
                 throw error
             }
@@ -127,6 +140,9 @@ extension AudioService: AVAudioRecorderDelegate {
 extension AudioService: AVAudioPlayerDelegate {
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         isPlaying = false
+        let duration = player.duration > 0 ? player.duration : (playbackStartDate.map { Date().timeIntervalSince($0) } ?? 0)
+        onPlaybackFinished?(max(0, duration))
+        playbackStartDate = nil
     }
     
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {

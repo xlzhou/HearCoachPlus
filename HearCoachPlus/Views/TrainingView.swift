@@ -6,7 +6,7 @@ struct TrainingView: View {
     @EnvironmentObject private var dataManager: DataManager
     @EnvironmentObject private var settings: AppSettings
     @State private var textResponse = ""
-    @State private var showingTextInput = false
+    @State private var isTextInputActive = false
     
     var body: some View {
         NavigationView {
@@ -28,8 +28,15 @@ struct TrainingView: View {
             } message: {
                 Text(viewModel.feedbackMessage)
             }
-            .sheet(isPresented: $showingTextInput) {
-                textInputSheet
+            .alert("提示", isPresented: $viewModel.showDailyGoalReached) {
+                Button("确定") { }
+            } message: {
+                Text(viewModel.dailyGoalMessage)
+            }
+            // Removed popup sheet for text input; now inline in the page
+            .onChange(of: viewModel.isSessionActive) { _, isActive in
+                // Ensure inline text input UI resets when session ends
+                if !isActive { isTextInputActive = false }
             }
         }
     }
@@ -87,16 +94,29 @@ struct TrainingView: View {
                 Text("训练进度")
                     .font(.headline)
                 Spacer()
-                Button("结束训练") {
-                    viewModel.endSession()
-                }
-                .foregroundColor(.red)
+                let goalReached = viewModel.todayUsageSeconds >= settings.sessionDuration
+                Text(goalReached ? "达成目标" : "正在训练")
+                    .font(.subheadline)
+                    .foregroundColor(goalReached ? .green : .blue)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background((goalReached ? Color.green.opacity(0.12) : Color.blue.opacity(0.12)))
+                    .cornerRadius(14)
             }
             
             HStack {
                 Text("尝试次数: \(viewModel.sessionAttempts.count)")
                 Spacer()
                 Text("正确: \(viewModel.sessionAttempts.filter { $0.isCorrect }.count)")
+            }
+            .font(.subheadline)
+            .foregroundColor(.secondary)
+
+            HStack {
+                Text("今日累计时长")
+                Spacer()
+                Text(formatDuration(viewModel.todayUsageSeconds))
+                    .foregroundColor(.secondary)
             }
             .font(.subheadline)
             .foregroundColor(.secondary)
@@ -213,47 +233,39 @@ struct TrainingView: View {
     
     private var textResponseControls: some View {
         VStack(spacing: 12) {
-            Button("输入文本") {
-                showingTextInput = true
-            }
-            .buttonStyle(.borderedProminent)
-            
-            Text("点击输入文本响应")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-    }
-    
-    private var textInputSheet: some View {
-        NavigationView {
-            VStack(spacing: 20) {
-                Text("输入你听到的内容")
-                    .font(.headline)
-                    .padding(.top)
-                
-                TextField("输入你的响应...", text: $textResponse, axis: .vertical)
+            if isTextInputActive {
+                TextField("输入你听到的内容...", text: $textResponse, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(3...6)
                 
+                HStack(spacing: 12) {
                 Button("提交") {
                     viewModel.submitTextResponse(textResponse)
                     textResponse = ""
-                    showingTextInput = false
+                    isTextInputActive = false
+                    viewModel.endTextInput(didSubmit: true)
+                }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(textResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    
+                Button("取消") {
+                    textResponse = ""
+                    isTextInputActive = false
+                    viewModel.endTextInput(didSubmit: false)
+                }
+                    .buttonStyle(.bordered)
+                }
+            } else {
+                Button("输入文本") {
+                    isTextInputActive = true
+                    viewModel.beginTextInput()
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(textResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 
-                Spacer()
+                Text("点击输入文本响应")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
-            .padding()
-            .navigationTitle("文本响应")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationBarItems(
-                trailing: Button("取消") {
-                    textResponse = ""
-                    showingTextInput = false
-                }
-            )
         }
     }
     
@@ -277,6 +289,14 @@ struct TrainingView: View {
                 .cornerRadius(10)
             }
         }
+    }
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
+        return String(format: "%02d:%02d", m, s)
     }
 }
 

@@ -26,7 +26,7 @@ struct PrivacyConsentView: View {
                 .padding()
             }
             .navigationTitle("隐私与同意")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
     
@@ -67,7 +67,7 @@ struct PrivacyConsentView: View {
                 ConsentItem(
                     icon: "textformat",
                     title: "文本分析",
-                    description: "您的响应会被分析准确性和相似度评分"
+                    description: "您的回答会被分析准确性和相似度评分"
                 )
             }
         }
@@ -80,7 +80,7 @@ struct PrivacyConsentView: View {
             
             VStack(alignment: .leading, spacing: 8) {
                 Text("• 音频录音由AI服务处理用于语音识别")
-                Text("• 文本响应会被分析语义相似度")
+                Text("• 文本回答会被分析语义相似度")
                 Text("• 所有处理都是无状态的 - AI提供商不会永久存储数据")
                 Text("• 您的个人信息永远不会包含在AI服务请求中")
                 Text("• 训练历史仅存储在您的设备本地")

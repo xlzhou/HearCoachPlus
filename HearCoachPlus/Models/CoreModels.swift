@@ -98,3 +98,23 @@ enum Language: String, Codable, CaseIterable {
         }
     }
 }
+
+// MARK: - Daily Training Usage
+
+struct DailyUsage: Codable, Identifiable {
+    // ISO date string yyyy-MM-dd used as id to simplify persistence and lookups
+    let id: String
+    var seconds: TimeInterval
+    
+    init(date: Date = Date(), seconds: TimeInterval) {
+        self.id = DailyUsage.isoDateString(for: date)
+        self.seconds = seconds
+    }
+    
+    static func isoDateString(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+}

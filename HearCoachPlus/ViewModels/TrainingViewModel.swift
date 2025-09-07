@@ -16,6 +16,9 @@ class TrainingViewModel: ObservableObject {
     @Published var responseMode: ResponseMode = .voice
     @Published var recordingURL: URL?
     @Published var showingNextButton = false
+    @Published var todayUsageSeconds: TimeInterval = 0
+    @Published var showDailyGoalReached = false
+    @Published var dailyGoalMessage = ""
     
     private var llmProvider: LLMProvider
     private let ttsProvider: TTSProvider
@@ -24,6 +27,7 @@ class TrainingViewModel: ObservableObject {
     private let audioService: AudioService
     private let dataManager: DataManager
     private let settings: AppSettings
+    private var textInputStartDate: Date?
     
     init(
         llmProvider: LLMProvider? = nil,
@@ -41,6 +45,19 @@ class TrainingViewModel: ObservableObject {
         self.audioService = audioService
         self.dataManager = dataManager
         self.settings = settings
+        self.todayUsageSeconds = dataManager.usageSeconds()
+        
+        // Wire audio durations to daily usage accumulation
+        self.audioService.onPlaybackFinished = { [weak self] seconds in
+            Task { @MainActor in
+                self?.accumulateUsage(seconds)
+            }
+        }
+        self.audioService.onRecordingFinished = { [weak self] seconds in
+            Task { @MainActor in
+                self?.accumulateUsage(seconds)
+            }
+        }
     }
     
     func updateLLMProvider() {
@@ -165,6 +182,19 @@ class TrainingViewModel: ObservableObject {
     func proceedToNextSentence() {
         showingNextButton = false
         loadNextSentence()
+    }
+    
+    // MARK: - Text Input Usage Tracking
+    func beginTextInput() {
+        textInputStartDate = Date()
+    }
+    
+    func endTextInput(didSubmit: Bool) {
+        if let start = textInputStartDate {
+            let duration = Date().timeIntervalSince(start)
+            accumulateUsage(duration)
+        }
+        textInputStartDate = nil
     }
     
     func startRecording() {
@@ -364,4 +394,23 @@ class TrainingViewModel: ObservableObject {
         
         return score
     }
+}
+
+// MARK: - Daily Usage helpers
+extension TrainingViewModel {
+    private func accumulateUsage(_ seconds: TimeInterval) {
+        guard seconds > 0 else { return }
+        // Detect threshold crossing only when accumulating usage (not on settings change)
+        let previous = dataManager.usageSeconds()
+        dataManager.addUsage(seconds: seconds)
+        todayUsageSeconds = dataManager.usageSeconds()
+        let goal = settings.sessionDuration
+        // Show only once per day when crossing from below goal to at/above goal
+        if previous < goal && todayUsageSeconds >= goal && !dataManager.hasShownCongrats() {
+            showDailyGoalReached = true
+            dailyGoalMessage = "祝贺你，今天训练时长已经达成"
+            dataManager.markCongratsShown()
+        }
+    }
+    
 }

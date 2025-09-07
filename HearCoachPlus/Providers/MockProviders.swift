@@ -140,6 +140,29 @@ class SystemTTSProvider: NSObject, TTSProvider {
     private var continuation: CheckedContinuation<URL, Error>?
     private var isSpeaking = false
     
+    private func selectVoice(for language: String) -> AVSpeechSynthesisVoice {
+        let voices = AVSpeechSynthesisVoice.speechVoices()
+        // Prefer region-specific high-quality English voices
+        if language.hasPrefix("en") {
+            if let us = voices.first(where: { $0.language == "en-US" }) {
+                return us
+            }
+            if let gb = voices.first(where: { $0.language == "en-GB" }) {
+                return gb
+            }
+            return AVSpeechSynthesisVoice(language: "en-US") ?? AVSpeechSynthesisVoice(language: language) ?? AVSpeechSynthesisVoice(language: "zh-CN")!
+        }
+        
+        // For non-English, try exact, then prefix, then requested
+        if let exact = voices.first(where: { $0.language == language }) {
+            return exact
+        }
+        if let prefix = voices.first(where: { $0.language.hasPrefix(String(language.prefix(2))) }) {
+            return prefix
+        }
+        return AVSpeechSynthesisVoice(language: language) ?? AVSpeechSynthesisVoice(language: "zh-CN")!
+    }
+    
     override init() {
         synthesizer = AVSpeechSynthesizer()
         super.init()
@@ -178,24 +201,26 @@ class SystemTTSProvider: NSObject, TTSProvider {
         // Create utterance
         let utterance = AVSpeechUtterance(string: text)
         
-        // Set voice based on language
-        let voices = AVSpeechSynthesisVoice.speechVoices()
-        if let voice = voices.first(where: { $0.language == language }) {
-            utterance.voice = voice
-        } else if let voice = voices.first(where: { $0.language.hasPrefix(language.prefix(2)) }) {
-            utterance.voice = voice
-        } else if let voice = AVSpeechSynthesisVoice(language: language) {
-            utterance.voice = voice
-        } else {
-            utterance.voice = AVSpeechSynthesisVoice(language: "zh-CN") // Default to Chinese
-        }
+        // Set voice with better defaults per language
+        let selectedVoice = selectVoice(for: language)
+        utterance.voice = selectedVoice
         
-        // Configure speech settings for better clarity and longer duration
-        utterance.rate = max(0.15, min(Float(rate), 0.4)) // Much slower rate for language learning
-        utterance.pitchMultiplier = max(0.9, min(Float(pitch), 1.1)) // Natural pitch
+        // Configure speech settings for more natural sound
+        let isEnglish = selectedVoice.language.hasPrefix("en")
+        let baseRate: Float = isEnglish ? 0.5 : 0.42     // Apple scale (0.0...1.0), 0.5 is close to default
+        let minRate: Float = isEnglish ? 0.4 : 0.35
+        let maxRate: Float = isEnglish ? 0.6 : 0.5
+        let userFactor = max(0.75, min(Float(rate), 1.5)) // tighten extremes
+        utterance.rate = min(max(baseRate * userFactor, minRate), maxRate)
+        
+        // Keep pitch near natural
+        let desiredPitch = Float(pitch)
+        utterance.pitchMultiplier = min(max(desiredPitch, 0.9), 1.1)
         utterance.volume = 1.0
-        utterance.preUtteranceDelay = 0.8 // Longer delay before speaking
-        utterance.postUtteranceDelay = 0.5 // Delay after speaking
+        
+        // Shorter delays to avoid robotic pacing
+        utterance.preUtteranceDelay = 0.15
+        utterance.postUtteranceDelay = 0.1
         
         // Create audio file with proper settings
         let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1)!

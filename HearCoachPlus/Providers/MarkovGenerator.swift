@@ -141,6 +141,13 @@ class MarkovGenerator: LLMProvider {
                 englishCorpus = [:]
             }
         }
+
+        // Augment corpora offline to 1000 items per level without duplicates
+        chineseCorpus = CorpusAugmentor.augment(corpus: chineseCorpus, lang: .chinese, targetPerLevel: 1000)
+        englishCorpus = CorpusAugmentor.augment(corpus: englishCorpus, lang: .english, targetPerLevel: 1000)
+        
+        print("Augmented Chinese corpus sizes: easy=\(chineseCorpus["easy"]?.count ?? 0), medium=\(chineseCorpus["medium"]?.count ?? 0), hard=\(chineseCorpus["hard"]?.count ?? 0)")
+        print("Augmented English corpus sizes: easy=\(englishCorpus["easy"]?.count ?? 0), medium=\(englishCorpus["medium"]?.count ?? 0), hard=\(englishCorpus["hard"]?.count ?? 0)")
     }
     
     func generateSentence(_ req: LLMRequest) async throws -> LLMSentence {
