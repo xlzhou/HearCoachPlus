@@ -6,6 +6,8 @@
 //
 
 import Foundation
+
+#if canImport(SwiftData) && !SKIP_MACROS
 import SwiftData
 
 @Model
@@ -16,3 +18,4 @@ final class Item {
         self.timestamp = timestamp
     }
 }
+#endif

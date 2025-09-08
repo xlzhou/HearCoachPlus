@@ -185,22 +185,8 @@ struct ProgressView: View {
     
     // Computed properties
     private var filteredSessions: [TrainingSession] {
-        let now = Date()
-        let calendar = Calendar.current
-        
-        let startDate: Date = {
-            switch selectedTimeRange {
-            case .week:
-                return calendar.date(byAdding: .day, value: -7, to: now) ?? now
-            case .month:
-                return calendar.date(byAdding: .month, value: -1, to: now) ?? now
-            case .year:
-                return calendar.date(byAdding: .year, value: -1, to: now) ?? now
-            }
-        }()
-        
         return dataManager.sessions
-            .filter { $0.date >= startDate }
+            .filter { $0.date >= dateRangeStart }
             .sorted { $0.date > $1.date }
     }
     
@@ -222,7 +208,13 @@ struct ProgressView: View {
         let sessions = filteredSessions
         guard !sessions.isEmpty else { return 0 }
         
-        return sessions.map { $0.averageScore }.reduce(0, +) / Double(sessions.count)
+        // Calculate weighted average based on total attempts in each session
+        let totalWeightedScore = sessions.reduce(0.0) { total, session in
+            return total + (session.averageScore * Double(session.totalAttempts))
+        }
+        let totalAttempts = sessions.reduce(0) { $0 + $1.totalAttempts }
+        
+        return totalAttempts > 0 ? totalWeightedScore / Double(totalAttempts) : 0
     }
 
     // MARK: - Usage helpers
@@ -334,7 +326,9 @@ struct SessionRow: View {
     }
 }
 
+#if !SKIP_MACROS
 #Preview {
     ProgressView()
         .environmentObject(DataManager())
 }
+#endif

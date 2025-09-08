@@ -5,6 +5,7 @@ import SwiftUI
 class TrainingViewModel: ObservableObject {
     @Published var currentSentence: Sentence?
     @Published var isLoading = false
+    @Published var isProcessingVoice = false
     @Published var showingSentenceText = false
     @Published var currentAttempt = 1
     @Published var maxAttempts = 3
@@ -32,7 +33,7 @@ class TrainingViewModel: ObservableObject {
     init(
         llmProvider: LLMProvider? = nil,
         ttsProvider: TTSProvider = SystemTTSProvider(),
-        asrProvider: ASRProvider = MockASRProvider(),
+        asrProvider: ASRProvider = SystemASRProvider(),
         pronunciationRater: PronunciationRater = MockPronunciationRater(),
         audioService: AudioService,
         dataManager: DataManager,
@@ -157,16 +158,13 @@ class TrainingViewModel: ObservableObject {
     
     func synthesizeAndPlay(_ text: String) async {
         do {
-            let request = TTSRequest(
+            // Use the audio service's direct TTS playback instead of file-based approach
+            try await audioService.playTTS(
                 text: text,
-                lang: settings.language.rawValue,
-                voiceId: "default",
+                language: settings.language.rawValue,
                 rate: settings.voiceRate,
                 pitch: settings.voicePitch
             )
-            
-            let audioURL = try await ttsProvider.synthesize(request)
-            try await audioService.playAudio(from: audioURL)
         } catch {
             print("TTS failed: \(error)")
         }
@@ -214,7 +212,11 @@ class TrainingViewModel: ObservableObject {
         audioService.stopRecording()
         
         guard let recordingURL = recordingURL,
-              let sentence = currentSentence else { return }
+              let sentence = currentSentence else { 
+            return 
+        }
+        
+        isProcessingVoice = true
         
         Task {
             await processVoiceResponse(recordingURL: recordingURL, sentence: sentence)
@@ -222,8 +224,6 @@ class TrainingViewModel: ObservableObject {
     }
     
     private func processVoiceResponse(recordingURL: URL, sentence: Sentence) async {
-        isLoading = true
-        
         do {
             // ASR
             let asrRequest = ASRRequest(audioURL: recordingURL, lang: sentence.lang)
@@ -261,9 +261,11 @@ class TrainingViewModel: ObservableObject {
             
             sessionAttempts.append(attempt)
             
+            isProcessingVoice = false
+            
             if isCorrect {
                 provideFeedback(success: true, attempt: attempt)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                     self.loadNextSentence()
                 }
             } else {
@@ -271,11 +273,10 @@ class TrainingViewModel: ObservableObject {
             }
             
         } catch {
-            feedbackMessage = "Failed to process voice response: \(error.localizedDescription)"
+            isProcessingVoice = false
+            feedbackMessage = "语音识别失败: \(error.localizedDescription)"
             showingFeedback = true
         }
-        
-        isLoading = false
     }
     
     func submitTextResponse(_ text: String) {
@@ -333,16 +334,23 @@ class TrainingViewModel: ObservableObject {
     
     private func provideFeedback(success: Bool, attempt: TrainingAttempt) {
         if success {
-            let encouragement = ["做得好！👏", "太棒了！🎉", "完美！⭐", "很好！👍"].randomElement() ?? "做得不错！"
+            let encouragement = ["恭喜！回答正确！🎉", "太棒了！完全正确！👏", "完美！语音识别成功！⭐", "很好！继续保持！👍"].randomElement() ?? "做得不错！"
             feedbackMessage = encouragement
+            showingFeedback = true
+            
+            // Keep congratulations visible longer
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                self.showingFeedback = false
+            }
         } else {
-            let retry = ["再试一次！", "快对了！", "你可以的！"].randomElement() ?? "再试试！"
+            let retry = ["再试一次！你快成功了！", "差一点点！继续努力！", "不要放弃！你可以的！"].randomElement() ?? "再试试！"
             feedbackMessage = retry
-        }
-        showingFeedback = true
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            self.showingFeedback = false
+            showingFeedback = true
+            
+            // Keep encouragement visible shorter
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                self.showingFeedback = false
+            }
         }
     }
     

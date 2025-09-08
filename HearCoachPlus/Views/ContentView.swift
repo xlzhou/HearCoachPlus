@@ -58,6 +58,8 @@ struct ContentView: View {
     }
 }
 
+#if !SKIP_MACROS
 #Preview {
     ContentView()
 }
+#endif

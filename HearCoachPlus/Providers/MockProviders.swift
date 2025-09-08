@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import Speech
 
 // MARK: - Mock Implementations for Development/Testing
 
@@ -170,19 +171,13 @@ class SystemTTSProvider: NSObject, TTSProvider {
     }
     
     func synthesize(_ req: TTSRequest) async throws -> URL {
-        return try await withCheckedThrowingContinuation { continuation in
-            self.continuation = continuation
-            
-            Task {
+        return try await withCheckedThrowingContinuation { continuation in            
+            Task { @MainActor in
                 do {
                     let audioURL = try await self.generateAudioFile(text: req.text, language: req.lang, rate: req.rate, pitch: req.pitch)
-                    await MainActor.run {
-                        continuation.resume(returning: audioURL)
-                    }
+                    continuation.resume(returning: audioURL)
                 } catch {
-                    await MainActor.run {
-                        continuation.resume(throwing: error)
-                    }
+                    continuation.resume(throwing: error)
                 }
             }
         }
@@ -191,89 +186,62 @@ class SystemTTSProvider: NSObject, TTSProvider {
     private func generateAudioFile(text: String, language: String, rate: Double, pitch: Double) async throws -> URL {
         // Create a temporary audio file
         let tempDir = FileManager.default.temporaryDirectory
-        let audioURL = tempDir.appendingPathComponent("tts_\(UUID().uuidString).caf")
+        let audioURL = tempDir.appendingPathComponent("tts_\(UUID().uuidString).wav")
         
-        // Set up audio session
-        let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(.playAndRecord, mode: .default)
-        try audioSession.setActive(true)
-        
-        // Create utterance
+        // Create utterance for TTS settings (but don't speak it yet)
         let utterance = AVSpeechUtterance(string: text)
-        
-        // Set voice with better defaults per language
         let selectedVoice = selectVoice(for: language)
         utterance.voice = selectedVoice
         
-        // Configure speech settings for more natural sound
+        // Configure speech settings
         let isEnglish = selectedVoice.language.hasPrefix("en")
-        let baseRate: Float = isEnglish ? 0.5 : 0.42     // Apple scale (0.0...1.0), 0.5 is close to default
+        let baseRate: Float = isEnglish ? 0.5 : 0.42
         let minRate: Float = isEnglish ? 0.4 : 0.35
         let maxRate: Float = isEnglish ? 0.6 : 0.5
-        let userFactor = max(0.75, min(Float(rate), 1.5)) // tighten extremes
+        let userFactor = max(0.75, min(Float(rate), 1.5))
         utterance.rate = min(max(baseRate * userFactor, minRate), maxRate)
         
-        // Keep pitch near natural
         let desiredPitch = Float(pitch)
         utterance.pitchMultiplier = min(max(desiredPitch, 0.9), 1.1)
         utterance.volume = 1.0
         
-        // Shorter delays to avoid robotic pacing
-        utterance.preUtteranceDelay = 0.15
+        utterance.preUtteranceDelay = 0.1
         utterance.postUtteranceDelay = 0.1
         
-        // Create audio file with proper settings
-        let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1)!
-        let _ = try AVAudioFile(forWriting: audioURL, settings: format.settings)
+        // Create a simple placeholder file - the actual TTS will be handled by AudioService
+        // This file is just a marker that represents the speech content
+        try createPlaceholderAudioFile(at: audioURL, text: text, utterance: utterance)
         
-        // Set up audio engine for capturing system audio
-        let audioEngine = AVAudioEngine()
-        let _ = audioEngine.outputNode
-        
-        // Use a simple approach: let the system play and capture the timing
-        isSpeaking = true
-        
-        // Speak the utterance
-        synthesizer.speak(utterance)
-        
-        // Calculate expected duration based on text length and speech rate
-        let baseDuration = Double(text.count) * 0.25 // 250ms per character for slower speech
-        let rateMultiplier = 1.0 / Double(max(0.15, utterance.rate))
-        let expectedDuration = baseDuration * rateMultiplier + 2.0 // Add 2 second buffer
-        
-        // Wait for the expected duration
-        try await Task.sleep(nanoseconds: UInt64(expectedDuration * 1_000_000_000))
-        
-        // Create a simple audio file with appropriate duration
-        try await createSimpleAudioFile(at: audioURL, duration: expectedDuration)
-        
-        isSpeaking = false
-        
+        print("✅ Created audio file with placeholder at \(audioURL.lastPathComponent)")
         return audioURL
     }
     
-    private func createSimpleAudioFile(at url: URL, duration: Double) async throws {
+    private func createPlaceholderAudioFile(at url: URL, text: String, utterance: AVSpeechUtterance) throws {
+        // Create a very short, silent audio file as a placeholder
+        let duration: Double = 0.1 // Just 100ms of silence
         let sampleRate: Double = 44100
-        let numSamples = Int(duration * sampleRate)
+        let frameCount = AVAudioFrameCount(duration * sampleRate)
         
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
         let audioFile = try AVAudioFile(forWriting: url, settings: format.settings)
         
-        // Create silent audio buffer
-        let frameCount = AVAudioFrameCount(numSamples)
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
-            throw NSError(domain: "TTS", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create audio buffer"])
+            throw NSError(domain: "TTS", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create buffer"])
         }
         
         buffer.frameLength = frameCount
         
-        // Fill with silence (or you could add a simple tone)
-        let channelData = buffer.floatChannelData![0]
-        for i in 0..<Int(frameCount) {
-            channelData[i] = 0.0 // Silence
+        // Fill with complete silence - no sine wave
+        if let channelData = buffer.floatChannelData?[0] {
+            for i in 0..<Int(frameCount) {
+                channelData[i] = 0.0 // Complete silence
+            }
         }
         
         try audioFile.write(from: buffer)
+        
+        // Store the TTS settings in the file metadata (conceptually)
+        // The actual TTS will be handled when this file is "played"
     }
 }
 
@@ -281,17 +249,102 @@ class SystemTTSProvider: NSObject, TTSProvider {
 
 extension SystemTTSProvider: AVSpeechSynthesizerDelegate {
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        print("TTS finished speaking: \(utterance.speechString)")
+        print("✅ TTS finished speaking: \(utterance.speechString)")
         isSpeaking = false
     }
     
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
-        print("TTS started speaking: \(utterance.speechString)")
+        print("🎤 TTS started speaking: \(utterance.speechString)")
         isSpeaking = true
     }
     
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        print("TTS was cancelled")
+        print("❌ TTS was cancelled")
         isSpeaking = false
+    }
+}
+
+// MARK: - System ASR Provider
+
+class SystemASRProvider: ASRProvider {
+    private var speechRecognizer: SFSpeechRecognizer?
+    
+    func transcribe(_ req: ASRRequest) async throws -> ASRResult {
+        // Request permissions first
+        guard await requestPermissions() else {
+            throw ASRError.permissionDenied
+        }
+        
+        // Create speech recognizer for the requested language
+        speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: req.lang))
+        
+        guard let recognizer = speechRecognizer, recognizer.isAvailable else {
+            throw ASRError.recognizerUnavailable
+        }
+        
+        // Create recognition request
+        let request = SFSpeechURLRecognitionRequest(url: req.audioURL)
+        request.shouldReportPartialResults = false
+        request.requiresOnDeviceRecognition = false // Use cloud for better accuracy
+        
+        // Perform speech recognition
+        return try await withCheckedThrowingContinuation { continuation in
+            var hasResumed = false
+            
+            recognizer.recognitionTask(with: request) { result, error in
+                if hasResumed { return }
+                
+                if let error = error {
+                    hasResumed = true
+                    continuation.resume(throwing: error)
+                    return
+                }
+                
+                if let result = result, result.isFinal {
+                    hasResumed = true
+                    let transcript = result.bestTranscription.formattedString
+                    let confidence = result.bestTranscription.segments.isEmpty ? 0.0 : 
+                        result.bestTranscription.segments.map { Double($0.confidence) }.reduce(0, +) / Double(result.bestTranscription.segments.count)
+                    
+                    print("DEBUG: ASR result - transcript: '\(transcript)', confidence: \(confidence)")
+                    
+                    let asrResult = ASRResult(
+                        transcript: transcript,
+                        confidence: confidence
+                    )
+                    continuation.resume(returning: asrResult)
+                }
+            }
+        }
+    }
+    
+    private func requestPermissions() async -> Bool {
+        // Request speech recognition permission
+        let speechAuthStatus = await withCheckedContinuation { continuation in
+            SFSpeechRecognizer.requestAuthorization { status in
+                continuation.resume(returning: status == .authorized)
+            }
+        }
+        
+        return speechAuthStatus
+    }
+}
+
+// MARK: - ASR Errors
+
+enum ASRError: Error, LocalizedError {
+    case permissionDenied
+    case recognizerUnavailable
+    case invalidAudioFile
+    
+    var errorDescription: String? {
+        switch self {
+        case .permissionDenied:
+            return "Speech recognition permission denied"
+        case .recognizerUnavailable:
+            return "Speech recognizer unavailable for this language"
+        case .invalidAudioFile:
+            return "Invalid audio file for recognition"
+        }
     }
 }

@@ -23,6 +23,7 @@ struct TrainingView: View {
             }
             .padding()
             .navigationTitle("听力教练+")
+            .navigationBarTitleDisplayMode(.inline)
             .alert("反馈", isPresented: $viewModel.showingFeedback) {
                 Button("确定") { }
             } message: {
@@ -77,11 +78,12 @@ struct TrainingView: View {
     
     private var activeSessionView: some View {
         VStack(spacing: 24) {
-            sessionProgressView
-            
             if viewModel.isLoading {
                 loadingView
+            } else if viewModel.isProcessingVoice {
+                voiceProcessingView
             } else {
+                sessionProgressView
                 sentenceView
                 responseControlsView
             }
@@ -135,6 +137,48 @@ struct TrainingView: View {
                 .foregroundColor(.secondary)
         }
         .frame(height: 120)
+    }
+    
+    private var voiceProcessingView: some View {
+        ZStack {
+            // Full screen solid background to cover everything
+            Color(UIColor.systemBackground)
+                .ignoresSafeArea()
+            
+            VStack(spacing: 24) {
+                // 使用明确的活动指示器而不是通用的ProgressView
+                HStack {
+                    ForEach(0..<3) { index in
+                        Circle()
+                            .fill(Color.blue)
+                            .frame(width: 10, height: 10)
+                            .scaleEffect(index == 0 ? 1.0 : 0.5)
+                            .animation(
+                                Animation.easeInOut(duration: 0.6)
+                                    .repeatForever()
+                                    .delay(Double(index) * 0.2),
+                                value: index
+                            )
+                    }
+                }
+                .frame(height: 20)
+                
+                VStack(spacing: 12) {
+                    Text("识别与判断语音输入")
+                        .font(.title2)
+                        .fontWeight(.medium)
+                        .foregroundColor(.primary)
+                    
+                    Text("正在分析您的语音...")
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.vertical, 40)
+            .padding(.horizontal, 24)
+            .background(Color.gray.opacity(0.05))
+            .cornerRadius(16)
+        }
     }
     
     private var sentenceView: some View {
@@ -227,7 +271,7 @@ struct TrainingView: View {
                         .foregroundColor(.white)
                 }
             }
-            .disabled(viewModel.isLoading)
+            .disabled(viewModel.isLoading || viewModel.isProcessingVoice)
         }
     }
     
@@ -320,6 +364,7 @@ struct AudioLevelView: View {
     }
 }
 
+#if !SKIP_MACROS
 #Preview {
     TrainingView()
         .environmentObject(TrainingViewModel(audioService: AudioService(), dataManager: DataManager(), settings: AppSettings()))
@@ -327,3 +372,4 @@ struct AudioLevelView: View {
         .environmentObject(DataManager())
         .environmentObject(AudioService())
 }
+#endif

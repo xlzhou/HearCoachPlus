@@ -362,8 +362,10 @@ struct ActivityViewController: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
+#if !SKIP_MACROS
 #Preview {
     SettingsView(selectedTab: .constant(2))
         .environmentObject(AppSettings())
         .environmentObject(DataManager())
 }
+#endif

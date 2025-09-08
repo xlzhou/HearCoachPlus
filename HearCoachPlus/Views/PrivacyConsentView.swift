@@ -61,7 +61,7 @@ struct PrivacyConsentView: View {
                 ConsentItem(
                     icon: "cloud.fill",
                     title: "云端处理",
-                    description: "音频和文本可能会发送给AI提供商进行语音识别和合成"
+                    description: "音频会发送给苹果服务器进行语音识别，文本可能发送给AI提供商进行合成"
                 )
                 
                 ConsentItem(
@@ -79,10 +79,11 @@ struct PrivacyConsentView: View {
                 .font(.headline)
             
             VStack(alignment: .leading, spacing: 8) {
-                Text("• 音频录音由AI服务处理用于语音识别")
+                Text("• 音频录音会发送给苹果服务器进行语音识别")
+                Text("• 文本内容可能发送给AI提供商进行语音合成")
                 Text("• 文本回答会被分析语义相似度")
-                Text("• 所有处理都是无状态的 - AI提供商不会永久存储数据")
-                Text("• 您的个人信息永远不会包含在AI服务请求中")
+                Text("• 所有云端处理都是无状态的 - 不会永久存储数据")
+                Text("• 您的个人信息永远不会包含在服务请求中")
                 Text("• 训练历史仅存储在您的设备本地")
             }
             .font(.body)
@@ -193,7 +194,9 @@ struct ConsentItem: View {
     }
 }
 
+#if !SKIP_MACROS
 #Preview {
     PrivacyConsentView()
         .environmentObject(AppSettings())
 }
+#endif
