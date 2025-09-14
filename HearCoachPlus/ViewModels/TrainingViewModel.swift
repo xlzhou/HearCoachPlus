@@ -20,6 +20,10 @@ class TrainingViewModel: ObservableObject {
     @Published var todayUsageSeconds: TimeInterval = 0
     @Published var showDailyGoalReached = false
     @Published var dailyGoalMessage = ""
+    @Published var replayCount = 0
+    @Published var showingHintButton = false
+    @Published var showingHintContent = false
+    private var shouldShowGoalReachedAfterTask = false
     
     private var llmProvider: LLMProvider
     private let ttsProvider: TTSProvider
@@ -69,6 +73,15 @@ class TrainingViewModel: ObservableObject {
         isSessionActive = true
         sessionStartTime = Date()
         sessionAttempts = []
+        // Reset all UI state when starting a new session
+        showingNextButton = false
+        showingSentenceText = false
+        currentAttempt = 1
+        showingFeedback = false
+        feedbackMessage = ""
+        replayCount = 0
+        showingHintButton = false
+        showingHintContent = false
         loadNextSentence()
     }
     
@@ -89,6 +102,9 @@ class TrainingViewModel: ObservableObject {
                 currentSentence = sentence
                 currentAttempt = 1
                 showingSentenceText = false
+                replayCount = 0
+                showingHintButton = false
+                showingHintContent = false
                 isLoading = false  // Set loading to false immediately after sentence is ready
                 
                 // Start audio playback in background - don't wait for it to finish
@@ -102,6 +118,9 @@ class TrainingViewModel: ObservableObject {
                     currentSentence = sentence
                     currentAttempt = 1
                     showingSentenceText = false
+                    replayCount = 0
+                    showingHintButton = false
+                    showingHintContent = false
                     isLoading = false  // Set loading to false immediately after sentence is ready
                     
                     // Start audio playback in background - don't wait for it to finish
@@ -172,6 +191,10 @@ class TrainingViewModel: ObservableObject {
     
     func replayCurrentSentence() {
         guard let sentence = currentSentence else { return }
+        replayCount += 1
+        if replayCount >= 4 {
+            showingHintButton = true
+        }
         Task {
             await synthesizeAndPlay(sentence.text)
         }
@@ -180,6 +203,14 @@ class TrainingViewModel: ObservableObject {
     func proceedToNextSentence() {
         showingNextButton = false
         loadNextSentence()
+    }
+    
+    func showHintContent() {
+        showingHintContent = true
+    }
+    
+    func hideHintContent() {
+        showingHintContent = false
     }
     
     // MARK: - Text Input Usage Tracking
@@ -265,9 +296,7 @@ class TrainingViewModel: ObservableObject {
             
             if isCorrect {
                 provideFeedback(success: true, attempt: attempt)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                    self.loadNextSentence()
-                }
+                // Remove auto-advance, wait for user to dismiss feedback
             } else {
                 handleIncorrectResponse(attempt: attempt)
             }
@@ -305,9 +334,7 @@ class TrainingViewModel: ObservableObject {
         
         if isCorrect {
             provideFeedback(success: true, attempt: attempt)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                self.loadNextSentence()
-            }
+            // Remove auto-advance, wait for user to dismiss feedback
         } else {
             handleIncorrectResponse(attempt: attempt)
         }
@@ -337,17 +364,13 @@ class TrainingViewModel: ObservableObject {
             let encouragement = ["恭喜！回答正确！🎉", "太棒了！完全正确！👏", "完美！语音识别成功！⭐", "很好！继续保持！👍"].randomElement() ?? "做得不错！"
             feedbackMessage = encouragement
             showingFeedback = true
-            
-            // Keep congratulations visible longer
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                self.showingFeedback = false
-            }
+            // Remove auto-dismissal - wait for user to click
         } else {
             let retry = ["再试一次！你快成功了！", "差一点点！继续努力！", "不要放弃！你可以的！"].randomElement() ?? "再试试！"
             feedbackMessage = retry
             showingFeedback = true
             
-            // Keep encouragement visible shorter
+            // Keep encouragement visible shorter for failed attempts
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 self.showingFeedback = false
             }
@@ -355,37 +378,88 @@ class TrainingViewModel: ObservableObject {
     }
     
     private func calculateSemanticSimilarity(reference: String, transcript: String) -> Double {
-        // Clean both texts by removing punctuation and normalizing
+        // Clean both texts by removing punctuation and spaces
         let cleanReference = cleanTextForComparison(reference)
         let cleanTranscript = cleanTextForComparison(transcript)
         
-        let refWords = Set(cleanReference.lowercased().components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty })
-        let transWords = Set(cleanTranscript.lowercased().components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty })
+        // Direct string comparison after cleaning (no word segmentation)
+        let similarity = calculateStringSimilarity(cleanReference.lowercased(), cleanTranscript.lowercased())
         
-        let intersection = refWords.intersection(transWords)
-        let union = refWords.union(transWords)
-        let similarity = union.isEmpty ? 0 : Double(intersection.count) / Double(union.count)
-        
-        print("DEBUG: Text comparison - Original: '\(reference)' vs Input: '\(transcript)'")
-        print("DEBUG: Cleaned - Reference: '\(cleanReference)' vs Transcript: '\(cleanTranscript)'")
-        print("DEBUG: Reference words: \(refWords)")
-        print("DEBUG: Transcript words: \(transWords)")
-        print("DEBUG: Similarity: \(similarity)")
+        print("DEBUG: Text comparison - Original reference: '\(reference)' vs Input: '\(transcript)'")
+        print("DEBUG: Cleaned (punctuation and spaces removed) - Reference: '\(cleanReference)' vs Transcript: '\(cleanTranscript)'")
+        print("DEBUG: String similarity score: \(similarity)")
         
         return similarity
     }
     
     private func cleanTextForComparison(_ text: String) -> String {
-        // Define all punctuation marks to remove (English and Chinese)
-        let punctuationMarks = ".,!?;:\"'()[]{}「」『』\u{201C}\u{201D}\u{2018}\u{2019}，。！？；：（）【】《》〈〉〔〕〘〙〚〛"
-        let punctuationSet = CharacterSet(charactersIn: punctuationMarks)
+        // Create a comprehensive set of punctuation marks and whitespace to ignore
+        var charactersToRemove = CharacterSet.punctuationCharacters
         
-        // Remove punctuation and extra whitespace
-        return text.components(separatedBy: punctuationSet)
-                   .joined(separator: " ")
-                   .components(separatedBy: .whitespacesAndNewlines)
-                   .filter { !$0.isEmpty }
-                   .joined(separator: " ")
+        // Add whitespace characters (spaces, tabs, newlines, etc.)
+        charactersToRemove = charactersToRemove.union(CharacterSet.whitespacesAndNewlines)
+        
+        // Add additional Chinese punctuation marks not covered by default set
+        let additionalChinesePunctuation = "，。！？；：\u{201C}\u{201D}\u{2018}\u{2019}（）【】《》〈〉〔〕〖〗〘〙〚〛｛｝「」『』‹›«»～·…—–−"
+        charactersToRemove = charactersToRemove.union(CharacterSet(charactersIn: additionalChinesePunctuation))
+        
+        // Also include symbols that might be used as punctuation
+        let additionalSymbols = "※§¡¿‽‰‱°′″‴"
+        charactersToRemove = charactersToRemove.union(CharacterSet(charactersIn: additionalSymbols))
+        
+        // Remove all punctuation and whitespace characters
+        let cleanedText = text.components(separatedBy: charactersToRemove).joined()
+        
+        return cleanedText
+    }
+    
+    private func calculateStringSimilarity(_ str1: String, _ str2: String) -> Double {
+        // If strings are identical after cleaning, perfect match
+        if str1 == str2 {
+            return 1.0
+        }
+        
+        // If either string is empty, no similarity
+        if str1.isEmpty || str2.isEmpty {
+            return 0.0
+        }
+        
+        // Calculate Levenshtein distance-based similarity
+        let distance = levenshteinDistance(str1, str2)
+        let maxLength = max(str1.count, str2.count)
+        let similarity = 1.0 - (Double(distance) / Double(maxLength))
+        
+        return max(0.0, similarity)
+    }
+    
+    private func levenshteinDistance(_ str1: String, _ str2: String) -> Int {
+        let arr1 = Array(str1)
+        let arr2 = Array(str2)
+        let m = arr1.count
+        let n = arr2.count
+        
+        var dp = Array(repeating: Array(repeating: 0, count: n + 1), count: m + 1)
+        
+        // Initialize base cases
+        for i in 0...m {
+            dp[i][0] = i
+        }
+        for j in 0...n {
+            dp[0][j] = j
+        }
+        
+        // Fill the dp table
+        for i in 1...m {
+            for j in 1...n {
+                if arr1[i-1] == arr2[j-1] {
+                    dp[i][j] = dp[i-1][j-1]
+                } else {
+                    dp[i][j] = 1 + min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1])
+                }
+            }
+        }
+        
+        return dp[m][n]
     }
     
     private func calculateItemScore(semanticSim: Double, pronunciationResult: PronunciationResult?, attempts: Int) -> Double {
@@ -413,11 +487,18 @@ extension TrainingViewModel {
         dataManager.addUsage(seconds: seconds)
         todayUsageSeconds = dataManager.usageSeconds()
         let goal = settings.sessionDuration
-        // Show only once per day when crossing from below goal to at/above goal
+        // Set flag to show goal reached message after task completion
         if previous < goal && todayUsageSeconds >= goal && !dataManager.hasShownCongrats() {
-            showDailyGoalReached = true
+            shouldShowGoalReachedAfterTask = true
             dailyGoalMessage = "祝贺你，今天训练时长已经达成"
             dataManager.markCongratsShown()
+        }
+    }
+    
+    func checkAndShowGoalReachedAfterTask() {
+        if shouldShowGoalReachedAfterTask {
+            shouldShowGoalReachedAfterTask = false
+            showDailyGoalReached = true
         }
     }
     

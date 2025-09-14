@@ -11,7 +11,7 @@ struct SettingsView: View {
     @State private var settingsChangedDuringSession = false
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             Form {
                 languageSection
                 sessionSection

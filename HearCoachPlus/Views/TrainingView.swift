@@ -7,9 +7,10 @@ struct TrainingView: View {
     @EnvironmentObject private var settings: AppSettings
     @State private var textResponse = ""
     @State private var isTextInputActive = false
+    @FocusState private var isTextFieldFocused: Bool
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack(spacing: 24) {
                 headerSection
                 
@@ -22,10 +23,23 @@ struct TrainingView: View {
                 Spacer()
             }
             .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle("听力教练+")
             .navigationBarTitleDisplayMode(.inline)
+            .onTapGesture {
+                // Dismiss keyboard when tapping outside text field
+                if isTextFieldFocused {
+                    isTextFieldFocused = false
+                }
+            }
             .alert("反馈", isPresented: $viewModel.showingFeedback) {
-                Button("确定") { }
+                Button("确定") { 
+                    // Check if this was a successful attempt that should advance to next sentence
+                    if let lastAttempt = viewModel.sessionAttempts.last, lastAttempt.isCorrect {
+                        viewModel.loadNextSentence()
+                        viewModel.checkAndShowGoalReachedAfterTask()
+                    }
+                }
             } message: {
                 Text(viewModel.feedbackMessage)
             }
@@ -183,13 +197,13 @@ struct TrainingView: View {
     
     private var sentenceView: some View {
         VStack(spacing: 16) {
-            if viewModel.showingSentenceText, let sentence = viewModel.currentSentence {
+            if viewModel.showingSentenceText || viewModel.showingHintContent, let sentence = viewModel.currentSentence {
                 Text(sentence.text)
                     .font(.title2)
                     .fontWeight(.medium)
                     .multilineTextAlignment(.center)
                     .padding()
-                    .background(Color.blue.opacity(0.1))
+                    .background(viewModel.showingHintContent ? Color.orange.opacity(0.1) : Color.blue.opacity(0.1))
                     .cornerRadius(12)
             } else {
                 VStack(spacing: 12) {
@@ -219,6 +233,11 @@ struct TrainingView: View {
                 }
             }
             .buttonStyle(.bordered)
+            
+            // Hint button (appears after 4+ replays)
+            if viewModel.showingHintButton {
+                hintButtonView
+            }
             
             // Response mode selector
             Picker("响应模式", selection: $viewModel.responseMode) {
@@ -281,12 +300,22 @@ struct TrainingView: View {
                 TextField("输入你听到的内容...", text: $textResponse, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(3...6)
+                    .focused($isTextFieldFocused)
+                    .toolbar {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button("完成") {
+                                isTextFieldFocused = false
+                            }
+                        }
+                    }
                 
                 HStack(spacing: 12) {
                 Button("提交") {
                     viewModel.submitTextResponse(textResponse)
                     textResponse = ""
                     isTextInputActive = false
+                    isTextFieldFocused = false
                     viewModel.endTextInput(didSubmit: true)
                 }
                     .buttonStyle(.borderedProminent)
@@ -295,6 +324,7 @@ struct TrainingView: View {
                 Button("取消") {
                     textResponse = ""
                     isTextInputActive = false
+                    isTextFieldFocused = false
                     viewModel.endTextInput(didSubmit: false)
                 }
                     .buttonStyle(.bordered)
@@ -302,6 +332,7 @@ struct TrainingView: View {
             } else {
                 Button("输入文本") {
                     isTextInputActive = true
+                    isTextFieldFocused = true
                     viewModel.beginTextInput()
                 }
                 .buttonStyle(.borderedProminent)
@@ -334,6 +365,25 @@ struct TrainingView: View {
             }
         }
     }
+    
+    private var hintButtonView: some View {
+        Button(action: {}) {
+            HStack {
+                Image(systemName: "eye")
+                Text("提示")
+            }
+            .foregroundColor(.orange)
+        }
+        .buttonStyle(.bordered)
+        .onLongPressGesture(minimumDuration: 0.1, maximumDistance: 50, perform: {}, onPressingChanged: { isPressing in
+            if isPressing {
+                viewModel.showHintContent()
+            } else {
+                viewModel.hideHintContent()
+            }
+        })
+    }
+    
     private func formatDuration(_ seconds: TimeInterval) -> String {
         let total = Int(seconds)
         let h = total / 3600

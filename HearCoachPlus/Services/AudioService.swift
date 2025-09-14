@@ -30,17 +30,20 @@ class AudioService: NSObject, ObservableObject {
     
     private func setupAudioSession() {
         do {
-            // Configure audio session for both playback and recording
-            try audioSession.setCategory(.playAndRecord, mode: .voiceChat, options: [
-                .defaultToSpeaker,
-                .allowBluetooth,
-                .allowBluetoothA2DP,
-                .duckOthers
-            ])
+            // Configure audio session for both playback and recording with minimal options
+            try audioSession.setCategory(.playAndRecord, options: [.defaultToSpeaker])
             try audioSession.setActive(true)
             print("✅ Audio session configured successfully")
-        } catch {
+        } catch let error {
             print("❌ Failed to setup audio session: \(error)")
+            // Try even simpler configuration
+            do {
+                try audioSession.setCategory(.playAndRecord)
+                try audioSession.setActive(true)
+                print("✅ Audio session configured with basic settings")
+            } catch let fallbackError {
+                print("❌ Failed to setup audio session with fallback: \(fallbackError)")
+            }
         }
     }
     
@@ -75,7 +78,7 @@ class AudioService: NSObject, ObservableObject {
         
         do {
             // Configure audio session for recording
-            try audioSession.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
+            try audioSession.setCategory(.playAndRecord, options: [.defaultToSpeaker])
             try audioSession.setActive(true)
             
             audioRecorder = try AVAudioRecorder(url: recordingURL, settings: settings)
@@ -148,7 +151,7 @@ class AudioService: NSObject, ObservableObject {
         await MainActor.run {
             do {
                 try audioSession.setActive(true)
-                try audioSession.setCategory(.playback, mode: .voicePrompt, options: [.defaultToSpeaker, .duckOthers])
+                try audioSession.setCategory(.playback, options: [.defaultToSpeaker])
                 
                 isPlaying = true
                 playbackStartDate = Date()
@@ -193,7 +196,7 @@ class AudioService: NSObject, ObservableObject {
                 try audioSession.setActive(true)
                 
                 // Configure for playback
-                try audioSession.setCategory(.playback, mode: .voicePrompt, options: [.defaultToSpeaker, .duckOthers])
+                try audioSession.setCategory(.playback, options: [.defaultToSpeaker])
                 
                 audioPlayer = try AVAudioPlayer(contentsOf: url)
                 audioPlayer?.delegate = self
@@ -291,12 +294,7 @@ extension AudioService: AVAudioPlayerDelegate {
         
         // Restore audio session to default configuration
         do {
-            try audioSession.setCategory(.playAndRecord, mode: .voiceChat, options: [
-                .defaultToSpeaker,
-                .allowBluetooth,
-                .allowBluetoothA2DP,
-                .duckOthers
-            ])
+            try audioSession.setCategory(.playAndRecord, options: [.defaultToSpeaker])
         } catch {
             print("❌ Failed to restore audio session: \(error)")
         }
@@ -328,12 +326,7 @@ extension AudioService: AVSpeechSynthesizerDelegate {
         
         // Restore audio session to default configuration
         do {
-            try audioSession.setCategory(.playAndRecord, mode: .voiceChat, options: [
-                .defaultToSpeaker,
-                .allowBluetooth,
-                .allowBluetoothA2DP,
-                .duckOthers
-            ])
+            try audioSession.setCategory(.playAndRecord, options: [.defaultToSpeaker])
         } catch {
             print("❌ Failed to restore audio session: \(error)")
         }
