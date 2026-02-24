@@ -2,6 +2,9 @@
 
 An AI-powered iOS app for daily listening practice with speech recognition and pronunciation scoring.
 
+
+If you need assistance or would like to provide feedback, please contact us at:carolhsu113@gmail.com We will respond within 7 days.
+
 ## Features
 
 - 🎧 **Daily Listening Sessions** - Configurable 30-minute sessions with local notifications
