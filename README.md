@@ -4,6 +4,18 @@ An AI-powered iOS app for daily listening practice with speech recognition and p
 
 
 If you need assistance or would like to provide feedback, please contact us at:carolhsu113@gmail.com We will respond within 7 days.
+如果您在使用过程中遇到问题，或有建议反馈，请通过以下方式联系我们：
+
+邮箱：carolhsu113@gmail.com
+（请在邮件中注明您的设备型号与系统版本）
+
+常见问题：
+	1.	如何调整训练难度？
+在“设置”页面可进行难度调节。
+	2.	如何查看训练进度？
+点击“进度”标签即可查看。
+
+我们会在一周内回复您的邮件。
 
 ## Features
 
